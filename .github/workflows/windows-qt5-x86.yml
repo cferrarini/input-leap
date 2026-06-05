@@ -21,7 +21,6 @@ jobs:
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # Clona e compila o dnssd.dll/lib de 32-bit diretamente do fonte
       - name: Build dnssd x86 from source (marcschier/dnssd)
         shell: cmd
         run: |
@@ -35,13 +34,16 @@ jobs:
           cmake --build build_x86 --config Release
           if errorlevel 1 exit /b 1
 
-          :: Copia os artefatos para o diretório esperado pelo workflow
           md ..\..\deps\lib_target 2>nul
-          copy /Y build_x86\Release\dnssd.dll ..\..\deps\lib_target\
-          copy /Y build_x86\Release\dnssd.lib ..\..\deps\lib_target\
 
-          :: Injeta o header no local esperado pelo Input Leap
+          copy /Y build_x86\bin\Release\dnssd.dll ..\..\deps\lib_target\
+          if errorlevel 1 ( echo ERRO: dnssd.dll nao encontrada & exit /b 1 )
+
+          copy /Y build_x86\lib\Release\dnssd.lib ..\..\deps\lib_target\
+          if errorlevel 1 ( echo ERRO: dnssd.lib nao encontrada & exit /b 1 )
+
           copy /Y dns_sd.h ..\..\src\gui\src\dns_sd.h
+          if errorlevel 1 ( echo ERRO: dns_sd.h nao encontrada & exit /b 1 )
 
           echo === Artefatos gerados ===
           dir ..\..\deps\lib_target\
