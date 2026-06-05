@@ -38,18 +38,37 @@ jobs:
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # INJEÇÃO LOCAL INFALÍVEL: Força o dns_sd.h a ficar na mesma pasta que os arquivos da GUI
-      - name: Inject Bonjour Headers Locally into GUI Source
+      # INJEÇÃO LOCAL DOS ARQUIVOS DO BONJOUR (Para evitar erros de caminhos do CMake)
+      - name: Inject Bonjour Files Locally
         shell: powershell
         run: |
-          $bonjour_include = ".\deps\BonjourSDKLike\Include"
           $gui_src_dir = ".\src\gui\src"
           
-          if (Test-Path "$bonjour_include\dns_sd.h") {
+          # 1. Localiza e injeta o cabeçalho dns_sd.h
+          $hf = Get-ChildItem -Path .\deps\BonjourSDKLike -Filter "dns_sd.h" -Recurse | Select-Object -First 1
+          if ($hf) {
               Write-Host "Injetando dns_sd.h localmente em $gui_src_dir..."
-              Copy-Item "$bonjour_include\dns_sd.h" -Destination $gui_src_dir -Force
+              Copy-Item $hf.FullName -Destination $gui_src_dir -Force
           } else {
-              Write-Error "O arquivo dns_sd.h não foi encontrado no cache/download do Bonjour!"
+              Write-Error "O arquivo dns_sd.h não foi encontrado!"
+          }
+          
+          # 2. Localiza o arquivo .lib de 32 bits (geralmente sob pastas x86 ou Win32)
+          # Buscamos especificamente caminhos que NÃO contenham 'x64' ou 'win64' para garantir que é 32-bit
+          $lf = Get-ChildItem -Path .\deps\BonjourSDKLike -Filter "dnssd.lib" -Recurse | Where-Object { $_.FullName -notmatch "x64" -and $_.FullName -notmatch "win64" } | Select-Object -First 1
+          
+          if (-not $lf) {
+              # Fallback caso não ache com filtros restritos, pega o primeiro disponível
+              $lf = Get-ChildItem -Path .\deps\BonjourSDKLike -Filter "dnssd.lib" -Recurse | Select-Object -First 1
+          }
+          
+          if ($lf) {
+              Write-Host "Encontrado dnssd.lib em: $($lf.FullName)"
+              New-Item -Force -ItemType Directory -Path .\deps\lib_target | Out-Null
+              Copy-Item $lf.FullName -Destination ".\deps\lib_target\dnssd.lib" -Force
+              Write-Host "dnssd.lib copiado para .\deps\lib_target\dnssd.lib"
+          } else {
+              Write-Error "O arquivo dnssd.lib não foi encontrado!"
           }
 
       - name: Install Qt5
@@ -65,8 +84,9 @@ jobs:
           if (Test-Path build) { Remove-Item -Recurse -Force build }
           New-Item -Force -ItemType Directory -Path build | Out-Null
           
-          $bonjour_root = (Resolve-Path ".\deps\BonjourSDKLike").Path.Replace('\', '/')
           $ssl_root = "C:\Program Files (x86)\OpenSSL-Win32"
+          # Caminho absoluto simplificado e garantido para a nossa lib injetada
+          $lib_path = (Resolve-Path ".\deps\lib_target\dnssd.lib").Path.Replace('\', '/')
           
           cd build
           
@@ -79,7 +99,7 @@ jobs:
             -D INPUTLEAP_BUILD_GUI=ON `
             -D INPUTLEAP_BUILD_TESTS=OFF `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
-            -D DNSSD_LIB="$bonjour_root/Lib/Win32/dnssd.lib" `
+            -D DNSSD_LIB="$lib_path" `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
 
