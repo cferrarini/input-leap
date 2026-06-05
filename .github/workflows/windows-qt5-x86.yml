@@ -25,31 +25,43 @@ jobs:
         shell: cmd
         run: |
           set ROOT=%CD%
-          git clone --depth 1 https://github.com/marcschier/dnssd.git deps\dnssd-src
+          set DNSSD=%ROOT%\deps\dnssd-src
+          set TARGET=%ROOT%\deps\lib_target
+          set GUI_SRC=%ROOT%\src\gui\src
+
+          git clone --depth 1 https://github.com/marcschier/dnssd.git "%DNSSD%"
           if errorlevel 1 exit /b 1
 
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
 
-          cd deps\dnssd-src
+          cd "%DNSSD%"
+
+          :: Captura caminho absoluto do dns_sd.h antes de qualquer cd
+          set HEADER_PATH=
+          for /r . %%f in (dns_sd.h) do (
+            if not defined HEADER_PATH set HEADER_PATH=%%~ff
+          )
+          if not defined HEADER_PATH ( echo ERRO: dns_sd.h nao encontrada & exit /b 1 )
+          echo dns_sd.h encontrado em: %HEADER_PATH%
+
           cmake -S . -B build_x86 -G "Visual Studio 17 2022" -A Win32
           cmake --build build_x86 --config Release
           if errorlevel 1 exit /b 1
 
-          cd %ROOT%
+          cd "%ROOT%"
+          md "%TARGET%" 2>nul
 
-          md deps\lib_target 2>nul
-
-          copy /Y deps\dnssd-src\build_x86\bin\Release\dnssd.dll deps\lib_target\
+          copy /Y "%DNSSD%\build_x86\bin\Release\dnssd.dll" "%TARGET%\"
           if errorlevel 1 ( echo ERRO: dnssd.dll nao encontrada & exit /b 1 )
 
-          copy /Y deps\dnssd-src\build_x86\lib\Release\dnssd.lib deps\lib_target\
+          copy /Y "%DNSSD%\build_x86\lib\Release\dnssd.lib" "%TARGET%\"
           if errorlevel 1 ( echo ERRO: dnssd.lib nao encontrada & exit /b 1 )
 
-          copy /Y deps\dnssd-src\dns_sd.h src\gui\src\dns_sd.h
-          if errorlevel 1 ( echo ERRO: dns_sd.h nao encontrada & exit /b 1 )
+          copy /Y "%HEADER_PATH%" "%GUI_SRC%\dns_sd.h"
+          if errorlevel 1 ( echo ERRO: falha ao copiar dns_sd.h & exit /b 1 )
 
           echo === Artefatos gerados ===
-          dir deps\lib_target\
+          dir "%TARGET%"
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
