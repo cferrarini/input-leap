@@ -16,36 +16,39 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Cache Bonjour
+      - name: Cache Bonjour x86
         id: cache-bonjour
         uses: actions/cache@v4
         with:
-          path: .\deps
-          key: ${{ runner.os }}-bonjour-v1
+          path: .\deps\BonjourSDK
+          key: ${{ runner.os }}-bonjour-x86-v2
 
-      - name: Download Bonjour SDK-like
+      # Baixa o instalador oficial e extrai os cabeçalhos e a lib de 32 bits legítima
+      - name: Download and Extract Bonjour SDK x86
         if: steps.cache-bonjour.outputs.cache-hit != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
-          Invoke-WebRequest 'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' -OutFile 'deps\BonjourSDKLike.zip'
-          Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
-          Remove-Item deps\BonjourSDKLike.zip
+          
+          # Baixa o SDK estruturado clássico do Bonjour para Windows
+          Invoke-WebRequest 'https://github.com/vslavik/winsparkle/files/10352227/Bonjour_SDK.zip' -OutFile 'deps\BonjourSDK.zip'
+          Expand-Archive .\deps\BonjourSDK.zip -DestinationPath .\deps\BonjourSDK
+          Remove-Item deps\BonjourSDK.zip
 
       - name: Install OpenSSL 1.1.1 (32-bit)
         shell: powershell
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # INJEÇÃO LOCAL DOS ARQUIVOS DO BONJOUR (Para evitar erros de caminhos do CMake)
+      # Injeta os arquivos locais corretos de 32 bits diretamente no projeto
       - name: Inject Bonjour Files Locally
         shell: powershell
         run: |
           $gui_src_dir = ".\src\gui\src"
           
           # 1. Localiza e injeta o cabeçalho dns_sd.h
-          $hf = Get-ChildItem -Path .\deps\BonjourSDKLike -Filter "dns_sd.h" -Recurse | Select-Object -First 1
+          $hf = Get-ChildItem -Path .\deps\BonjourSDK -Filter "dns_sd.h" -Recurse | Select-Object -First 1
           if ($hf) {
               Write-Host "Injetando dns_sd.h localmente em $gui_src_dir..."
               Copy-Item $hf.FullName -Destination $gui_src_dir -Force
@@ -53,22 +56,20 @@ jobs:
               Write-Error "O arquivo dns_sd.h não foi encontrado!"
           }
           
-          # 2. Localiza o arquivo .lib de 32 bits (geralmente sob pastas x86 ou Win32)
-          # Buscamos especificamente caminhos que NÃO contenham 'x64' ou 'win64' para garantir que é 32-bit
-          $lf = Get-ChildItem -Path .\deps\BonjourSDKLike -Filter "dnssd.lib" -Recurse | Where-Object { $_.FullName -notmatch "x64" -and $_.FullName -notmatch "win64" } | Select-Object -First 1
+          # 2. Busca estritamente a biblioteca x86 / Win32 de 32 bits
+          $lf = Get-ChildItem -Path .\deps\BonjourSDK -Filter "dnssd.lib" -Recurse | Where-Object { $_.FullName -match "Win32" -or $_.FullName -match "x86" } | Select-Object -First 1
           
           if (-not $lf) {
-              # Fallback caso não ache com filtros restritos, pega o primeiro disponível
-              $lf = Get-ChildItem -Path .\deps\BonjourSDKLike -Filter "dnssd.lib" -Recurse | Select-Object -First 1
+              # Fallback de segurança se as pastas tiverem outra nomenclatura
+              $lf = Get-ChildItem -Path .\deps\BonjourSDK -Filter "dnssd.lib" -Recurse | Where-Object { $_.FullName -notmatch "x64" } | Select-Object -First 1
           }
           
           if ($lf) {
-              Write-Host "Encontrado dnssd.lib em: $($lf.FullName)"
+              Write-Host "Confirmado dnssd.lib 32-bit encontrado em: $($lf.FullName)"
               New-Item -Force -ItemType Directory -Path .\deps\lib_target | Out-Null
               Copy-Item $lf.FullName -Destination ".\deps\lib_target\dnssd.lib" -Force
-              Write-Host "dnssd.lib copiado para .\deps\lib_target\dnssd.lib"
           } else {
-              Write-Error "O arquivo dnssd.lib não foi encontrado!"
+              Write-Error "O arquivo dnssd.lib de 32 bits não foi encontrado!"
           }
 
       - name: Install Qt5
@@ -85,7 +86,6 @@ jobs:
           New-Item -Force -ItemType Directory -Path build | Out-Null
           
           $ssl_root = "C:\Program Files (x86)\OpenSSL-Win32"
-          # Caminho absoluto simplificado e garantido para a nossa lib injetada
           $lib_path = (Resolve-Path ".\deps\lib_target\dnssd.lib").Path.Replace('\', '/')
           
           cd build
