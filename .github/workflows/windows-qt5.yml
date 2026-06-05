@@ -28,39 +28,22 @@ jobs:
           Remove-Item deps\BonjourSDKLike.zip
           "path=$env:GITHUB_WORKSPACE\deps\BonjourSDKLike" >> $env:GITHUB_OUTPUT
 
-      - name: Download OpenSSL 1.1.1 (with retry)
+      - name: Download OpenSSL 1.1.1 (Pre-built from greenpau/openssl-binaries)
         id: openssl
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
           
-          $urls = @(
-            'https://slproweb.com/download/Win32OpenSSL-1_1_1w.zip',
-            'https://github.com/slproweb/slproweb.com/releases/download/Win32OpenSSL-1_1_1w/Win32OpenSSL-1_1_1w.zip'
-          )
+          # Download from greenpau/openssl-binaries repository
+          $url = 'https://github.com/greenpau/openssl-binaries/raw/main/win64/openssl-1.1.1w.zip'
+          Write-Host "Downloading OpenSSL from: $url"
           
-          $downloaded = $false
-          foreach ($url in $urls) {
-            try {
-              Write-Host "Trying: $url"
-              Invoke-WebRequest $url -OutFile 'deps\Win32OpenSSL.zip' -TimeoutSec 30
-              $downloaded = $true
-              break
-            } catch {
-              Write-Host "Failed: $_"
-              Continue
-            }
-          }
+          Invoke-WebRequest $url -OutFile 'deps\openssl.zip' -TimeoutSec 60
+          Expand-Archive .\deps\openssl.zip -DestinationPath .\deps\openssl
+          Remove-Item deps\openssl.zip
           
-          if (-not $downloaded) {
-            throw "Failed to download OpenSSL from all sources"
-          }
-          
-          Expand-Archive .\deps\Win32OpenSSL.zip -DestinationPath .\deps\Win32OpenSSL
-          Remove-Item deps\Win32OpenSSL.zip
-          
-          "path=$env:GITHUB_WORKSPACE\deps\Win32OpenSSL" >> $env:GITHUB_OUTPUT
+          "path=$env:GITHUB_WORKSPACE\deps\openssl" >> $env:GITHUB_OUTPUT
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -98,7 +81,7 @@ jobs:
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
-          $openssl_path = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
+          $openssl_path = "$env:GITHUB_WORKSPACE\deps\openssl"
           Copy-Item "$openssl_path\bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
           Copy-Item "$openssl_path\bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
 
