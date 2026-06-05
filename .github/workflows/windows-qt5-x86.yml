@@ -7,7 +7,7 @@ env:
   B_BUILD_TYPE: Release
 
 jobs:
- win-build:
+  win-build:
     name: Windows Qt5 (x86)
     runs-on: windows-2022
 
@@ -39,15 +39,18 @@ jobs:
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # TRUQUE DA PASTA DO SYSTEM: Injeta o arquivo que faltava onde o compilador sempre busca
-      - name: Inject Bonjour Headers into System Include
+      # INJEÇÃO COMPLETA: Injeta o Header E o arquivo .lib na raiz do OpenSSL do sistema
+      - name: Inject Bonjour SDK into System Folders
         shell: powershell
         run: |
-          $bonjour_include = "$env:GITHUB_WORKSPACE\deps\BonjourSDKLike\Include"
-          $system_openssl_include = "C:\Program Files (x86)\OpenSSL-Win32\include"
+          $bonjour_root = "$env:GITHUB_WORKSPACE\deps\BonjourSDKLike"
+          $system_openssl_dir = "C:\Program Files (x86)\OpenSSL-Win32"
           
-          # Copia o dns_sd.h para a pasta raiz que o CMake lê por padrão
-          Copy-Item "$bonjour_include\dns_sd.h" -Destination "$system_openssl_include" -Force
+          # Copia o header para a pasta de include
+          Copy-Item "$bonjour_root\Include\dns_sd.h" -Destination "$system_openssl_dir\include" -Force
+          
+          # Copia a biblioteca de 32 bits (Win32) para a pasta de bibliotecas do compilador
+          Copy-Item "$bonjour_root\Lib\Win32\dnssd.lib" -Destination "$system_openssl_dir\lib" -Force
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -64,8 +67,8 @@ jobs:
           cd build
           
           $ssl_root = "C:\Program Files (x86)\OpenSSL-Win32"
-          $bonjour_root = "$env:GITHUB_WORKSPACE\deps\BonjourSDKLike"
           
+          # Agora o DNSSD_LIB aponta para o caminho garantido e fixo no sistema
           cmake -S ..\input-leap `
             -G "Visual Studio 17 2022" `
             -A Win32 `
@@ -75,7 +78,7 @@ jobs:
             -D INPUTLEAP_BUILD_GUI=ON `
             -D INPUTLEAP_BUILD_TESTS=OFF `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
-            -D DNSSD_LIB="$bonjour_root\Lib\Win32\dnssd.lib" `
+            -D DNSSD_LIB="$ssl_root\lib\dnssd.lib" `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
 
