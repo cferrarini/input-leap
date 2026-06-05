@@ -65,7 +65,7 @@ jobs:
             -D INPUTLEAP_BUILD_GUI=ON `
             -D INPUTLEAP_BUILD_TESTS=OFF `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
-            -D CMAKE_PREFIX_PATH="$bonjour_root" `
+            -D BONJOUR_INCLUDE_DIR="$bonjour_root/Include" `
             -D DNSSD_LIB="$bonjour_root/Lib/Win32/dnssd.lib" `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
