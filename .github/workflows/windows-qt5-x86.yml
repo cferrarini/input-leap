@@ -16,44 +16,35 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Cache Bonjour x86
-        id: cache-bonjour
-        uses: actions/cache@v4
-        with:
-          path: .\deps
-          key: ${{ runner.os }}-bonjour-x86-v1
-
-      - name: Download Bonjour SDK x86
-        if: steps.cache-bonjour.outputs.cache-hit != 'true'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -Force -ItemType Directory -Path .\deps\BonjourSDKLike | Out-Null
-          New-Item -Force -ItemType Directory -Path .\deps\lib_target    | Out-Null
-          Invoke-WebRequest `
-            'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x86_RelWithDebInfo.zip' `
-            -OutFile 'deps\BonjourSDKLike.zip'
-          Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
-          Remove-Item deps\BonjourSDKLike.zip
-
-      - name: Inject Bonjour Files
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -Force -ItemType Directory -Path .\deps\lib_target | Out-Null
-
-          # Mostra o que veio no ZIP para diagnóstico
-          Get-ChildItem -Recurse .\deps\BonjourSDKLike | Select-Object FullName
-
-          # Copia header e libs
-          Copy-Item ".\deps\BonjourSDKLike\dns_sd.h"  -Destination ".\src\gui\src\" -Force
-          Copy-Item ".\deps\BonjourSDKLike\dnssd.lib" -Destination ".\deps\lib_target\" -Force
-          Copy-Item ".\deps\BonjourSDKLike\dnssd.dll" -Destination ".\deps\lib_target\" -Force
-
       - name: Install OpenSSL 1.1.1 (32-bit)
         shell: powershell
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
+
+      # Clona e compila o dnssd.dll/lib de 32-bit diretamente do fonte
+      - name: Build dnssd x86 from source (marcschier/dnssd)
+        shell: cmd
+        run: |
+          git clone --depth 1 https://github.com/marcschier/dnssd.git deps\dnssd-src
+          if errorlevel 1 exit /b 1
+
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+
+          cd deps\dnssd-src
+          cmake -S . -B build_x86 -G "Visual Studio 17 2022" -A Win32
+          cmake --build build_x86 --config Release
+          if errorlevel 1 exit /b 1
+
+          :: Copia os artefatos para o diretório esperado pelo workflow
+          md ..\..\deps\lib_target 2>nul
+          copy /Y build_x86\Release\dnssd.dll ..\..\deps\lib_target\
+          copy /Y build_x86\Release\dnssd.lib ..\..\deps\lib_target\
+
+          :: Injeta o header no local esperado pelo Input Leap
+          copy /Y dns_sd.h ..\..\src\gui\src\dns_sd.h
+
+          echo === Artefatos gerados ===
+          dir ..\..\deps\lib_target\
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -94,9 +85,9 @@ jobs:
         shell: powershell
         run: |
           $openssl_bin = "C:\Program Files (x86)\OpenSSL-Win32\bin"
-          Copy-Item "$openssl_bin\libssl-1_1.dll"   -Destination "build\input-leap-install" -Force
-          Copy-Item "$openssl_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
-          Copy-Item ".\deps\lib_target\dnssd.dll"    -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libssl-1_1.dll"    -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libcrypto-1_1.dll"  -Destination "build\input-leap-install" -Force
+          Copy-Item ".\deps\lib_target\dnssd.dll"     -Destination "build\input-leap-install" -Force
 
       - name: Create ZIP
         shell: powershell
