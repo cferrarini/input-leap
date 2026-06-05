@@ -17,13 +17,13 @@ jobs:
           path: input-leap
           submodules: recursive
 
-      # CHAVE DE CACHE: Evita baixar tudo de novo se o build quebrar na frente
+      # CHAVE DE CACHE: Mantém a pasta deps salva para acelerar as execuções
       - name: Cache Dependencies
         id: cache-deps
         uses: actions/cache@v4
         with:
           path: .\deps
-          key: ${{ runner.os }}-deps-v1
+          key: ${{ runner.os }}-deps-v2  # Incrementado para invalidar o cache antigo incompleto
 
       - name: Download Bonjour SDK-like
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -35,13 +35,15 @@ jobs:
           Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
           Remove-Item deps\BonjourSDKLike.zip
 
-      - name: Download OpenSSL 1.1.1 (Windows 7/8 Compatible)
+      - name: Download OpenSSL 1.1.1 (Windows 7/8 Compatible - 32-bit)
         if: steps.cache-deps.outputs.cache-hit != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
-          Invoke-WebRequest 'https://download.firedaemon.com/FireDaemon-OpenSSL/openssl-1.1.1w.zip' -OutFile 'deps\Win32OpenSSL.zip'
+          
+          # Baixando um binário puro x86 (32-bit) do OpenSSL 1.1.1w para evitar conflitos de caminhos híbridos
+          Invoke-WebRequest 'https://github.com/curl/curl-for-win/releases/download/openssl-1.1.1w/openssl-1.1.1w-win32-mingw.zip' -OutFile 'deps\Win32OpenSSL.zip'
           Expand-Archive .\deps\Win32OpenSSL.zip -DestinationPath .\deps\Win32OpenSSL
           Remove-Item deps\Win32OpenSSL.zip
 
@@ -59,12 +61,9 @@ jobs:
           New-Item -Force -ItemType Directory -Path build | Out-Null
           cd build
           
-          # Estrutura exata de 32 bits mapeada do zip fornecido
-          $openssl_base_path = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
-          $ssl_base = "$openssl_base_path\openssl-1.1"
-          $ssl_root = "$ssl_base\x86"
-          $ssl_include = "$ssl_base\include"
+          $ssl_root = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
           
+          # Como este pacote é puramente 32-bit, o include e as libs ficam na raiz/padrão estrutural que o CMake ama
           cmake -S ..\input-leap `
             -G "Visual Studio 17 2022" `
             -A Win32 `
@@ -73,13 +72,7 @@ jobs:
             -D INPUTLEAP_VERSION_DESC=release `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
             -D DNSSD_LIB="$env:GITHUB_WORKSPACE\deps\BonjourSDKLike\Lib\Win32\dnssd.lib" `
-            -D OPENSSL_USE_STATIC_LIBS=OFF `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
-            -D OPENSSL_INCLUDE_DIR="$ssl_include" `
-            -D OPENSSL_CRYPTO_LIBRARY="$ssl_root\lib\libcrypto.lib" `
-            -D OPENSSL_SSL_LIBRARY="$ssl_root\lib\libssl.lib" `
-            -D OPENSSL_LIBRARIES="$ssl_root\lib\libssl.lib;$ssl_root\lib\libcrypto.lib" `
-            -D OPENSSL_VERSION="1.1.1w" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
 
       - name: Build
@@ -90,7 +83,21 @@ jobs:
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
-          # Copia as DLLs de 32 bits corretas para o diretório final do binário
-          $openssl_x86_bin = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL\openssl-1.1\x86\bin"
-          Copy-Item "$openssl_x86_bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
-          Copy-Item "$openssl_x86_bin\libcrypto-1_1.dll" -Destination "build\input
+          # Copia as DLLs do novo diretório de 32-bit puro
+          $openssl_bin = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL\bin"
+          Copy-Item "$openssl_bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+
+      - name: Create ZIP
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path build\input-leap-install\* `
+            -DestinationPath input-leap-windows-qt5-openssl111-x86.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: input-leap-windows-qt5-openssl111-x86
+          path: input-leap-windows-qt5-openssl111-x86.zip
+          retention-days: 30
