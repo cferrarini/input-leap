@@ -55,7 +55,7 @@ jobs:
           New-Item -Force -ItemType Directory -Path build | Out-Null
           cd build
           
-          # Ajuste dos caminhos com base na estrutura exata fornecida (openssl-1.1/x86)
+          # Estrutura exata de 32 bits mapeada do zip
           $ssl_base = "$env:OPENSSL_ROOT_DIR\openssl-1.1"
           $ssl_root = "$ssl_base\x86"
           $ssl_include = "$ssl_base\include"
@@ -68,6 +68,7 @@ jobs:
             -D INPUTLEAP_VERSION_DESC=release `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
             -D DNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\Win32\dnssd.lib" `
+            -D OPENSSL_USE_STATIC_LIBS=OFF `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
             -D OPENSSL_INCLUDE_DIR="$ssl_include" `
             -D OPENSSL_CRYPTO_LIBRARY="$ssl_root\lib\libcrypto.lib" `
@@ -85,7 +86,7 @@ jobs:
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
-          # Copia as DLLs de 32 bits corretas para o diretório final do binário
+          # Copia as DLLs de execução (runtime) para a pasta onde o .exe gerado vai morar
           $openssl_x86_bin = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL\openssl-1.1\x86\bin"
           Copy-Item "$openssl_x86_bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
           Copy-Item "$openssl_x86_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
