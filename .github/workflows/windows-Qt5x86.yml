@@ -23,7 +23,6 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
-          # Mantemos o mesmo link, mas dentro dele usaremos os arquivos da pasta Win32/x86 no CMake
           Invoke-WebRequest 'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' -OutFile 'deps\BonjourSDKLike.zip'
           Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
           Remove-Item deps\BonjourSDKLike.zip
@@ -36,7 +35,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
           
-          # Baixando a versão Win32 (32 bits) do OpenSSL 1.1.1w
           Invoke-WebRequest 'https://download.firedaemon.com/FireDaemon-OpenSSL/openssl-1.1.1w.zip' -OutFile 'deps\Win32OpenSSL.zip'
           Expand-Archive .\deps\Win32OpenSSL.zip -DestinationPath .\deps\Win32OpenSSL
           Remove-Item deps\Win32OpenSSL.zip
@@ -47,14 +45,20 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: 5.15.2
-          arch: win32_msvc2019  # Força explicitamente a instalação do Qt de 32 bits
+          arch: win32_msvc2019
           cache: true
 
       - name: Configure build
         shell: powershell
         run: |
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
           New-Item -Force -ItemType Directory -Path build | Out-Null
           cd build
+          
+          # Caminho exato para a pasta x86 de 32 bits dentro da estrutura extraída
+          $ssl_root = "$env:OPENSSL_ROOT_DIR\openssl-1.1\x86"
+          # Geralmente a pasta include fica junto da arquitetura ou na raiz da pasta openssl-1.1
+          $ssl_include = "$env:OPENSSL_ROOT_DIR\openssl-1.1\include"
           
           cmake -S ..\input-leap `
             -G "Visual Studio 17 2022" `
@@ -64,9 +68,8 @@ jobs:
             -D INPUTLEAP_VERSION_DESC=release `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
             -D DNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\Win32\dnssd.lib" `
-            -D OPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR" `
-            -D OPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libcrypto.lib" `
-            -D OPENSSL_SSL_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libssl.lib" `
+            -D OPENSSL_ROOT_DIR="$ssl_root" `
+            -D OPENSSL_INCLUDE_DIR="$ssl_include" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
         env:
           BONJOUR_SDK_HOME: ${{ steps.bonjour.outputs.path }}
@@ -80,9 +83,10 @@ jobs:
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
-          $openssl_path = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
-          Copy-Item "$openssl_path\bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
-          Copy-Item "$openssl_path\bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+          # Caminho atualizado para buscar as DLLs de 32 bits corretas
+          $openssl_x86_bin = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL\openssl-1.1\x86\bin"
+          Copy-Item "$openssl_x86_bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_x86_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
 
       - name: Create ZIP
         shell: powershell
