@@ -39,17 +39,17 @@ jobs:
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # INJEÇÃO COMPLETA: Injeta o Header E o arquivo .lib na raiz do OpenSSL do sistema
+      # Busca o caminho real relativo usando .\deps e injeta nas pastas do sistema
       - name: Inject Bonjour SDK into System Folders
         shell: powershell
         run: |
-          $bonjour_root = "$env:GITHUB_WORKSPACE\deps\BonjourSDKLike"
+          $bonjour_root = (Resolve-Path ".\deps\BonjourSDKLike").Path
           $system_openssl_dir = "C:\Program Files (x86)\OpenSSL-Win32"
           
-          # Copia o header para a pasta de include
+          # Injeta o arquivo de cabeçalho
           Copy-Item "$bonjour_root\Include\dns_sd.h" -Destination "$system_openssl_dir\include" -Force
           
-          # Copia a biblioteca de 32 bits (Win32) para a pasta de bibliotecas do compilador
+          # Injeta o arquivo de biblioteca x86
           Copy-Item "$bonjour_root\Lib\Win32\dnssd.lib" -Destination "$system_openssl_dir\lib" -Force
 
       - name: Install Qt5
@@ -68,7 +68,6 @@ jobs:
           
           $ssl_root = "C:\Program Files (x86)\OpenSSL-Win32"
           
-          # Agora o DNSSD_LIB aponta para o caminho garantido e fixo no sistema
           cmake -S ..\input-leap `
             -G "Visual Studio 17 2022" `
             -A Win32 `
