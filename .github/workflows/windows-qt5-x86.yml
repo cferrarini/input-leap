@@ -24,6 +24,7 @@ jobs:
       - name: Build dnssd x86 from source (marcschier/dnssd)
         shell: cmd
         run: |
+          set ROOT=%CD%
           git clone --depth 1 https://github.com/marcschier/dnssd.git deps\dnssd-src
           if errorlevel 1 exit /b 1
 
@@ -34,26 +35,21 @@ jobs:
           cmake --build build_x86 --config Release
           if errorlevel 1 exit /b 1
 
-          md ..\..\deps\lib_target 2>nul
+          cd %ROOT%
 
-          copy /Y build_x86\bin\Release\dnssd.dll ..\..\deps\lib_target\
+          md deps\lib_target 2>nul
+
+          copy /Y deps\dnssd-src\build_x86\bin\Release\dnssd.dll deps\lib_target\
           if errorlevel 1 ( echo ERRO: dnssd.dll nao encontrada & exit /b 1 )
 
-          copy /Y build_x86\lib\Release\dnssd.lib ..\..\deps\lib_target\
+          copy /Y deps\dnssd-src\build_x86\lib\Release\dnssd.lib deps\lib_target\
           if errorlevel 1 ( echo ERRO: dnssd.lib nao encontrada & exit /b 1 )
 
-          echo Procurando dns_sd.h...
-          for /r . %%f in (dns_sd.h) do (
-            echo Encontrado: %%f
-            copy /Y "%%f" "..\..\src\gui\src\dns_sd.h"
-            goto :header_ok
-          )
-          echo ERRO: dns_sd.h nao encontrada em nenhuma subpasta
-          exit /b 1
-          :header_ok
+          copy /Y deps\dnssd-src\dns_sd.h src\gui\src\dns_sd.h
+          if errorlevel 1 ( echo ERRO: dns_sd.h nao encontrada & exit /b 1 )
 
           echo === Artefatos gerados ===
-          dir ..\..\deps\lib_target\
+          dir deps\lib_target\
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
