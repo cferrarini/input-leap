@@ -39,18 +39,24 @@ jobs:
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # Busca o caminho real relativo usando .\deps e injeta nas pastas do sistema
+      # BUSCA AUTOMÁTICA: Procura pelos arquivos recursivamente para evitar erros de caminhos/letras
       - name: Inject Bonjour SDK into System Folders
         shell: powershell
         run: |
           $bonjour_root = (Resolve-Path ".\deps\BonjourSDKLike").Path
           $system_openssl_dir = "C:\Program Files (x86)\OpenSSL-Win32"
           
-          # Injeta o arquivo de cabeçalho
-          Copy-Item "$bonjour_root\Include\dns_sd.h" -Destination "$system_openssl_dir\include" -Force
+          # Encontra o dns_sd.h onde quer que ele esteja na pasta extraída
+          $header_file = Get-ChildItem -Path $bonjour_root -Filter "dns_sd.h" -Recurse | Select-Object -First 1
+          # Encontra o dnssd.lib correto de 32 bits (evitando a pasta x64 se houver)
+          $lib_file = Get-ChildItem -Path $bonjour_root -Filter "dnssd.lib" -Recurse | Where-Object { $_.FullName -notmatch "x64" } | Select-Object -First 1
           
-          # Injeta o arquivo de biblioteca x86
-          Copy-Item "$bonjour_root\Lib\Win32\dnssd.lib" -Destination "$system_openssl_dir\lib" -Force
+          Write-Host "Header encontrado em: $($header_file.FullName)"
+          Write-Host "Lib encontrada em: $($lib_file.FullName)"
+          
+          # Injeta os arquivos nas pastas do OpenSSL
+          Copy-Item $header_file.FullName -Destination "$system_openssl_dir\include" -Force
+          Copy-Item $lib_file.FullName -Destination "$system_openssl_dir\lib" -Force
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
