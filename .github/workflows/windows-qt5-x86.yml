@@ -38,6 +38,20 @@ jobs:
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
+      # INJEÇÃO LOCAL INFALÍVEL: Força o dns_sd.h a ficar na mesma pasta que os arquivos da GUI
+      - name: Inject Bonjour Headers Locally into GUI Source
+        shell: powershell
+        run: |
+          $bonjour_include = ".\deps\BonjourSDKLike\Include"
+          $gui_src_dir = ".\src\gui\src"
+          
+          if (Test-Path "$bonjour_include\dns_sd.h") {
+              Write-Host "Injetando dns_sd.h localmente em $gui_src_dir..."
+              Copy-Item "$bonjour_include\dns_sd.h" -Destination $gui_src_dir -Force
+          } else {
+              Write-Error "O arquivo dns_sd.h não foi encontrado no cache/download do Bonjour!"
+          }
+
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
         with:
@@ -65,7 +79,6 @@ jobs:
             -D INPUTLEAP_BUILD_GUI=ON `
             -D INPUTLEAP_BUILD_TESTS=OFF `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
-            -D BONJOUR_INCLUDE_DIR="$bonjour_root/Include" `
             -D DNSSD_LIB="$bonjour_root/Lib/Win32/dnssd.lib" `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
