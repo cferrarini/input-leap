@@ -8,8 +8,17 @@ env:
 
 jobs:
   win-build:
-    name: Windows Qt5 (x64)
+    name: Windows Qt5 (${{ matrix.arch }})
     runs-on: windows-2022
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            generator_arch: x64
+            bonjour_lib: x64
+          - arch: x86
+            generator_arch: Win32
+            bonjour_lib: Win32
 
     steps:
       - uses: actions/checkout@v4
@@ -47,22 +56,23 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: 5.15.2
+          arch: ${{ matrix.arch }}
           cache: true
 
       - name: Configure build
         shell: powershell
         run: |
-          New-Item -Force -ItemType Directory -Path build | Out-Null
-          cd build
+          New-Item -Force -ItemType Directory -Path build-${{ matrix.arch }} | Out-Null
+          cd build-${{ matrix.arch }}
           
           cmake -S ..\input-leap `
             -G "Visual Studio 17 2022" `
-            -A x64 `
+            -A ${{ matrix.generator_arch }} `
             -D CMAKE_BUILD_TYPE=Release `
             -D QT_DEFAULT_MAJOR_VERSION=5 `
             -D INPUTLEAP_VERSION_DESC=release `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
-            -D DNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\x64\dnssd.lib" `
+            -D DNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\${{ matrix.bonjour_lib }}\dnssd.lib" `
             -D OPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR" `
             -D OPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libcrypto.lib" `
             -D OPENSSL_SSL_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libssl.lib" `
@@ -74,25 +84,25 @@ jobs:
       - name: Build
         shell: powershell
         run: |
-          cmake --build build --config Release --target install
+          cmake --build build-${{ matrix.arch }} --config Release --target install
 
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
           $openssl_path = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
-          Copy-Item "$openssl_path\bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
-          Copy-Item "$openssl_path\bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_path\bin\libssl-1_1.dll" -Destination "build-${{ matrix.arch }}\input-leap-install" -Force
+          Copy-Item "$openssl_path\bin\libcrypto-1_1.dll" -Destination "build-${{ matrix.arch }}\input-leap-install" -Force
 
       - name: Create ZIP
         shell: powershell
         run: |
           Compress-Archive `
-            -Path build\input-leap-install\* `
-            -DestinationPath input-leap-windows-qt5-openssl111-x64.zip
+            -Path build-${{ matrix.arch }}\input-leap-install\* `
+            -DestinationPath input-leap-windows-qt5-openssl111-${{ matrix.arch }}.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: input-leap-windows-qt5-openssl111-x64
-          path: input-leap-windows-qt5-openssl111-x64.zip
+          name: input-leap-windows-qt5-openssl111-${{ matrix.arch }}
+          path: input-leap-windows-qt5-openssl111-${{ matrix.arch }}.zip
           retention-days: 30
