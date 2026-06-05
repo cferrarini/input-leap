@@ -1,28 +1,121 @@
-- name: Configure build
+name: Windows Qt5 Build (OpenSSL 1.1.1 - Windows 7/8 Compatible - x86)
+
+on:
+  workflow_dispatch:
+
+env:
+  B_BUILD_TYPE: Release
+
+jobs:
+ win-build:
+    name: Windows Qt5 (x86)
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache Bonjour
+        id: cache-bonjour
+        uses: actions/cache@v4
+        with:
+          path: .\deps
+          key: ${{ runner.os }}-bonjour-v1
+
+      # Revertido para o link que funciona!
+      - name: Download Bonjour SDK-like
+        if: steps.cache-bonjour.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -Force -ItemType Directory -Path .\deps
+          Invoke-WebRequest 'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' -OutFile 'deps\BonjourSDKLike.zip'
+          Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
+          Remove-Item deps\BonjourSDKLike.zip
+
+      - name: Install OpenSSL 1.1.1 (32-bit)
+        shell: powershell
+        run: |
+          choco install openssl --version=1.1.1.2100 -y --forcex86
+
+      # Ajustado para forçar o dnssd.lib de 32-bit (que fica direto na raiz de \Lib\)
+      - name: Inject Bonjour Files Locally
+        shell: powershell
+        run: |
+          $gui_src_dir = ".\src\gui\src"
+          
+          # 1. Injeta o cabeçalho dns_sd.h
+          if (Test-Path ".\deps\BonjourSDKLike\Include\dns_sd.h") {
+              Write-Host "Injetando dns_sd.h localmente em $gui_src_dir..."
+              Copy-Item ".\deps\BonjourSDKLike\Include\dns_sd.h" -Destination $gui_src_dir -Force
+          } else {
+              Write-Error "O arquivo dns_sd.h não foi encontrado!"
+          }
+          
+          # 2. Pega o dnssd.lib de 32-bits (Ele fica direto em \Lib\, o de 64 fica em \Lib\x64)
+          $lib_32bit = ".\deps\BonjourSDKLike\Lib\dnssd.lib"
+          if (Test-Path $lib_32bit) {
+              Write-Host "Confirmado dnssd.lib 32-bit encontrado!"
+              New-Item -Force -ItemType Directory -Path .\deps\lib_target | Out-Null
+              Copy-Item $lib_32bit -Destination ".\deps\lib_target\dnssd.lib" -Force
+          } else {
+              Write-Error "O arquivo dnssd.lib de 32-bits não foi encontrado no caminho esperado!"
+          }
+
+      - name: Install Qt5
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 5.15.2
+          arch: win32_msvc2019
+          cache: true
+
+      - name: Configure build
         shell: powershell
         run: |
           if (Test-Path build) { Remove-Item -Recurse -Force build }
           New-Item -Force -ItemType Directory -Path build | Out-Null
+          
+          $ssl_root = "C:\Program Files (x86)\OpenSSL-Win32"
+          $lib_path = (Resolve-Path ".\deps\lib_target\dnssd.lib").Path.Replace('\', '/')
+          
           cd build
           
-          # Caminhos absolutos apontando para a estrutura correta de 32 bits
-          $ssl_base = "$env:OPENSSL_ROOT_DIR\openssl-1.1"
-          $ssl_root = "$ssl_base\x86"
-          $ssl_include = "$ssl_base\include"
-          
-          cmake -S ..\input-leap `
+          cmake -S .. `
             -G "Visual Studio 17 2022" `
             -A Win32 `
             -D CMAKE_BUILD_TYPE=Release `
             -D QT_DEFAULT_MAJOR_VERSION=5 `
             -D INPUTLEAP_VERSION_DESC=release `
+            -D INPUTLEAP_BUILD_GUI=ON `
+            -D INPUTLEAP_BUILD_TESTS=OFF `
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
-            -D DNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\Win32\dnssd.lib" `
+            -D DNSSD_LIB="$lib_path" `
             -D OPENSSL_ROOT_DIR="$ssl_root" `
-            -D OPENSSL_INCLUDE_DIR="$ssl_include" `
-            -D OPENSSL_CRYPTO_LIBRARY="$ssl_root\lib\libcrypto.lib" `
-            -D OPENSSL_SSL_LIBRARY="$ssl_root\lib\libssl.lib" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
-        env:
-          BONJOUR_SDK_HOME: ${{ steps.bonjour.outputs.path }}
-          OPENSSL_ROOT_DIR: ${{ steps.openssl.outputs.path }}
+
+      - name: Build
+        shell: powershell
+        run: |
+          cmake --build build --config Release --target install
+
+      - name: Copy OpenSSL DLLs
+        shell: powershell
+        run: |
+          $openssl_bin = "C:\Program Files (x86)\OpenSSL-Win32\bin"
+          Copy-Item "$openssl_bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+
+      - name: Create ZIP
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path build\input-leap-install\* `
+            -DestinationPath input-leap-windows-qt5-openssl111-x86.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: input-leap-windows-qt5-openssl111-x86
+          path: input-leap-windows-qt5-openssl111-x86.zip
+          retention-days: 30
