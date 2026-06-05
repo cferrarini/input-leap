@@ -42,8 +42,15 @@ jobs:
           copy /Y build_x86\lib\Release\dnssd.lib ..\..\deps\lib_target\
           if errorlevel 1 ( echo ERRO: dnssd.lib nao encontrada & exit /b 1 )
 
-          copy /Y dns_sd.h ..\..\src\gui\src\dns_sd.h
-          if errorlevel 1 ( echo ERRO: dns_sd.h nao encontrada & exit /b 1 )
+          echo Procurando dns_sd.h...
+          for /r . %%f in (dns_sd.h) do (
+            echo Encontrado: %%f
+            copy /Y "%%f" "..\..\src\gui\src\dns_sd.h"
+            goto :header_ok
+          )
+          echo ERRO: dns_sd.h nao encontrada em nenhuma subpasta
+          exit /b 1
+          :header_ok
 
           echo === Artefatos gerados ===
           dir ..\..\deps\lib_target\
@@ -87,9 +94,9 @@ jobs:
         shell: powershell
         run: |
           $openssl_bin = "C:\Program Files (x86)\OpenSSL-Win32\bin"
-          Copy-Item "$openssl_bin\libssl-1_1.dll"    -Destination "build\input-leap-install" -Force
-          Copy-Item "$openssl_bin\libcrypto-1_1.dll"  -Destination "build\input-leap-install" -Force
-          Copy-Item ".\deps\lib_target\dnssd.dll"     -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libssl-1_1.dll"   -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+          Copy-Item ".\deps\lib_target\dnssd.dll"    -Destination "build\input-leap-install" -Force
 
       - name: Create ZIP
         shell: powershell
