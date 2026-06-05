@@ -16,52 +16,68 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Cache Bonjour
-        id: cache-bonjour
-        uses: actions/cache@v4
-        with:
-          path: .\deps
-          key: ${{ runner.os }}-bonjour-v1
-
-      # Revertido para o link que funciona!
-      - name: Download Bonjour SDK-like
-        if: steps.cache-bonjour.outputs.cache-hit != 'true'
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -Force -ItemType Directory -Path .\deps
-          Invoke-WebRequest 'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' -OutFile 'deps\BonjourSDKLike.zip'
-          Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
-          Remove-Item deps\BonjourSDKLike.zip
-
       - name: Install OpenSSL 1.1.1 (32-bit)
         shell: powershell
         run: |
           choco install openssl --version=1.1.1.2100 -y --forcex86
 
-      # Ajustado para forçar o dnssd.lib de 32-bit (que fica direto na raiz de \Lib\)
-      - name: Inject Bonjour Files Locally
+      # Baixa o instalador oficial da Apple e extrai a DLL de 32 bits real
+      - name: Extract Bonjour 32-bit from Apple Official Installer
         shell: powershell
         run: |
-          $gui_src_dir = ".\src\gui\src"
+          $ErrorActionPreference = "Stop"
+          New-Item -Force -ItemType Directory -Path .\deps\bonjour_extracted | Out-Null
           
-          # 1. Injeta o cabeçalho dns_sd.h
-          if (Test-Path ".\deps\BonjourSDKLike\Include\dns_sd.h") {
-              Write-Host "Injetando dns_sd.h localmente em $gui_src_dir..."
-              Copy-Item ".\deps\BonjourSDKLike\Include\dns_sd.h" -Destination $gui_src_dir -Force
-          } else {
-              Write-Error "O arquivo dns_sd.h não foi encontrado!"
-          }
+          # 1. Baixa o instalador oficial estável do Bonjour da Apple
+          Write-Host "Baixando Bonjour do servidor da Apple..."
+          Invoke-WebRequest 'https://updates.cdn-apple.com/2020/windows/001-29051-20200921-9AB7A720-FC2F-11EA-A3A7-68625902B0F6/Bonjour64.msi' -OutFile 'deps\Bonjour64.msi'
           
-          # 2. Pega o dnssd.lib de 32-bits (Ele fica direto em \Lib\, o de 64 fica em \Lib\x64)
-          $lib_32bit = ".\deps\BonjourSDKLike\Lib\dnssd.lib"
-          if (Test-Path $lib_32bit) {
-              Write-Host "Confirmado dnssd.lib 32-bit encontrado!"
+          # 2. Extrai o conteúdo do MSI sem instalar no sistema
+          Write-Host "Extraindo arquivos do MSI..."
+          Start-Process msiexec.exe -ArgumentList "/a `"$pwd\deps\Bonjour64.msi`" /qb TARGETDIR=`"$pwd\deps\bonjour_extracted`"" -Wait
+          
+          # O MSI de 64 bits da Apple traz AMBAS as DLLs (32 e 64 bits)
+          # A versão de 32 bits fica na pasta SystemFolder do dump do MSI
+          $dll32 = Get-ChildItem -Path .\deps\bonjour_extracted -Filter "dnssd.dll" -Recurse | Where-Object { $_.FullName -match "SystemFolder" } | Select-Object -First 1
+          
+          if ($dll32) {
+              Write-Host "Sucesso! dnssd.dll de 32 bits encontrada em: $($dll32.FullName)"
               New-Item -Force -ItemType Directory -Path .\deps\lib_target | Out-Null
-              Copy-Item $lib_32bit -Destination ".\deps\lib_target\dnssd.lib" -Force
+              Copy-Item $dll32.FullName -Destination ".\deps\lib_target\dnssd.dll" -Force
           } else {
-              Write-Error "O arquivo dnssd.lib de 32-bits não foi encontrado no caminho esperado!"
+              Write-Error "Não foi possível encontrar a dnssd.dll de 32 bits nos arquivos extraídos!"
           }
+
+      # Cria o arquivo .lib de 32 bits a partir da DLL e injeta o header dns_sd.h local
+      - name: Generate dnssd.lib and Inject Header
+        shell: cmd
+        run: |
+          :: 1. Baixa o cabeçalho oficial dns_sd.h direto do repositório da Apple
+          powershell -Command "Invoke-WebRequest 'https://raw.githubusercontent.com/apple-oss-distributions/mDNSResponder/main/mDNSShared/dns_sd.h' -OutFile '.\src\gui\src\dns_sd.h'"
+          
+          :: 2. Configura o ambiente de ferramentas do Visual Studio para x86 (32 bits)
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+          
+          :: 3. Cria um arquivo .def com as funções exportadas que o InputLeap precisa
+          cd deps\lib_target
+          (
+            echo LIBRARY dnssd.dll
+            echo EXPORTS
+            echo     DNSServiceRefSockFD
+            echo     DNSServiceProcessResult
+            echo     DNSServiceRefDeallocate
+            echo     DNSServiceBrowse
+            echo     DNSServiceRegister
+          ) > dnssd.def
+          
+          :: 4. Usa a ferramenta LIB do VS para gerar o arquivo .lib x86 legítimo
+          lib /def:dnssd.def /machine:x86 /out:dnssd.lib
+          
+          if exist dnssd.lib (
+              echo => Sucesso! dnssd.lib de 32 bits gerado com exito.
+          ) else (
+              exit /b 1
+          )
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -99,12 +115,14 @@ jobs:
         run: |
           cmake --build build --config Release --target install
 
-      - name: Copy OpenSSL DLLs
+      - name: Copy Runtime Dependencies
         shell: powershell
         run: |
           $openssl_bin = "C:\Program Files (x86)\OpenSSL-Win32\bin"
           Copy-Item "$openssl_bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
           Copy-Item "$openssl_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+          # Copia também a dll do bonjour gerada para acompanhar o executável
+          Copy-Item "deps\lib_target\dnssd.dll" -Destination "build\input-leap-install" -Force
 
       - name: Create ZIP
         shell: powershell
