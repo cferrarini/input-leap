@@ -1,4 +1,27 @@
-- name: Build dnssd x86 from source (marcschier/dnssd)
+name: Windows Qt5 Build (OpenSSL 1.1.1 - Windows 7/8 Compatible - x86)
+
+on:
+  workflow_dispatch:
+
+env:
+  B_BUILD_TYPE: Release
+
+jobs:
+  win-build:
+    name: Windows Qt5 (x86)
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install OpenSSL 1.1.1 (32-bit)
+        shell: powershell
+        run: |
+          choco install openssl --version=1.1.1.2100 -y --forcex86
+
+      - name: Build dnssd x86 from source (marcschier/dnssd)
         shell: cmd
         run: |
           setlocal enabledelayedexpansion
@@ -39,3 +62,60 @@
 
           echo === Artefatos gerados ===
           dir "%TARGET%"
+
+      - name: Install Qt5
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 5.15.2
+          arch: win32_msvc2019
+          cache: true
+
+      - name: Configure build
+        shell: powershell
+        run: |
+          if (Test-Path build) { Remove-Item -Recurse -Force build }
+          New-Item -Force -ItemType Directory -Path build | Out-Null
+
+          $ssl_root = "C:\Program Files (x86)\OpenSSL-Win32"
+          $lib_path = (Resolve-Path ".\deps\lib_target\dnssd.lib").Path.Replace('\', '/')
+
+          cd build
+          cmake -S .. `
+            -G "Visual Studio 17 2022" `
+            -A Win32 `
+            -D CMAKE_BUILD_TYPE=Release `
+            -D QT_DEFAULT_MAJOR_VERSION=5 `
+            -D INPUTLEAP_VERSION_DESC=release `
+            -D INPUTLEAP_BUILD_GUI=ON `
+            -D INPUTLEAP_BUILD_TESTS=OFF `
+            -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
+            -D DNSSD_LIB="$lib_path" `
+            -D OPENSSL_ROOT_DIR="$ssl_root" `
+            -D CMAKE_INSTALL_PREFIX=input-leap-install
+
+      - name: Build
+        shell: powershell
+        run: |
+          cmake --build build --config Release --target install
+
+      - name: Copy Runtime Dependencies
+        shell: powershell
+        run: |
+          $openssl_bin = "C:\Program Files (x86)\OpenSSL-Win32\bin"
+          Copy-Item "$openssl_bin\libssl-1_1.dll"   -Destination "build\input-leap-install" -Force
+          Copy-Item "$openssl_bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+          Copy-Item ".\deps\lib_target\dnssd.dll"    -Destination "build\input-leap-install" -Force
+
+      - name: Create ZIP
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path build\input-leap-install\* `
+            -DestinationPath input-leap-windows-qt5-openssl111-x86.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: input-leap-windows-qt5-openssl111-x86
+          path: input-leap-windows-qt5-openssl111-x86.zip
+          retention-days: 30
