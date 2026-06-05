@@ -28,22 +28,20 @@ jobs:
           Remove-Item deps\BonjourSDKLike.zip
           "path=$env:GITHUB_WORKSPACE\deps\BonjourSDKLike" >> $env:GITHUB_OUTPUT
 
-      - name: Download OpenSSL 1.1.1 (Pre-built from greenpau/openssl-binaries)
+      - name: Download OpenSSL 1.1.1 (Windows 7/8 Compatible)
         id: openssl
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
           
-          # Download from greenpau/openssl-binaries repository
-          $url = 'https://github.com/greenpau/openssl-binaries/raw/main/win64/openssl-1.1.1w.zip'
-          Write-Host "Downloading OpenSSL from: $url"
+          # Download Win32OpenSSL-1_1_1w (latest 1.1.1 version)
+          # This version is compatible with Windows 7, 8, 10, 11
+          Invoke-WebRequest 'https://download.firedaemon.com/FireDaemon-OpenSSL/openssl-1.1.1w.zip' -OutFile 'deps\Win32OpenSSL.zip'
+          Expand-Archive .\deps\Win32OpenSSL.zip -DestinationPath .\deps\Win32OpenSSL
+          Remove-Item deps\Win32OpenSSL.zip
           
-          Invoke-WebRequest $url -OutFile 'deps\openssl.zip' -TimeoutSec 60
-          Expand-Archive .\deps\openssl.zip -DestinationPath .\deps\openssl
-          Remove-Item deps\openssl.zip
-          
-          "path=$env:GITHUB_WORKSPACE\deps\openssl" >> $env:GITHUB_OUTPUT
+          "path=$env:GITHUB_WORKSPACE\deps\Win32OpenSSL" >> $env:GITHUB_OUTPUT
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -81,7 +79,7 @@ jobs:
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
-          $openssl_path = "$env:GITHUB_WORKSPACE\deps\openssl"
+          $openssl_path = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
           Copy-Item "$openssl_path\bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
           Copy-Item "$openssl_path\bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
 
