@@ -28,16 +28,35 @@ jobs:
           Remove-Item deps\BonjourSDKLike.zip
           "path=$env:GITHUB_WORKSPACE\deps\BonjourSDKLike" >> $env:GITHUB_OUTPUT
 
-      - name: Download OpenSSL 1.1.1 (Windows 7/8 Compatible)
+      - name: Download OpenSSL 1.1.1 (with retry)
         id: openssl
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -Force -ItemType Directory -Path .\deps
           
-          # Download Win32OpenSSL-1_1_1w (latest 1.1.1 version)
-          # This version is compatible with Windows 7, 8, 10, 11
-          Invoke-WebRequest 'https://slproweb.com/download/Win32OpenSSL-1_1_1w.zip' -OutFile 'deps\Win32OpenSSL.zip'
+          $urls = @(
+            'https://slproweb.com/download/Win32OpenSSL-1_1_1w.zip',
+            'https://github.com/slproweb/slproweb.com/releases/download/Win32OpenSSL-1_1_1w/Win32OpenSSL-1_1_1w.zip'
+          )
+          
+          $downloaded = $false
+          foreach ($url in $urls) {
+            try {
+              Write-Host "Trying: $url"
+              Invoke-WebRequest $url -OutFile 'deps\Win32OpenSSL.zip' -TimeoutSec 30
+              $downloaded = $true
+              break
+            } catch {
+              Write-Host "Failed: $_"
+              Continue
+            }
+          }
+          
+          if (-not $downloaded) {
+            throw "Failed to download OpenSSL from all sources"
+          }
+          
           Expand-Archive .\deps\Win32OpenSSL.zip -DestinationPath .\deps\Win32OpenSSL
           Remove-Item deps\Win32OpenSSL.zip
           
