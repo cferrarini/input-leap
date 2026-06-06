@@ -72,12 +72,11 @@ jobs:
           $stringApiSet = "#pragma once`n#include <winnls.h>"
           Set-Content "$xpInclude\stringapiset.h" $stringApiSet
 
-          # QS_TOUCH e QS_POINTER nao existem no XP SDK
           $file = "src\lib\platform\MSWindowsEventQueueBuffer.cpp"
           $content = Get-Content $file -Raw
           $content = $content -replace 'IsWindows8OrGreater\(\)', 'false'
-          $content = $content -replace '\|\s*QS_TOUCH\s*\|\s*QS_POINTER', ''
-          $content = $content -replace 'QS_TOUCH\s*\|\s*QS_POINTER\s*\|?', ''
+          $content = $content -replace '\s*\|\s*QS_TOUCH', ''
+          $content = $content -replace '\s*\|\s*QS_POINTER', ''
           Set-Content $file $content
 
           Write-Host "Stubs e patches aplicados com sucesso"
