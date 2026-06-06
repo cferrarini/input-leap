@@ -61,6 +61,30 @@ jobs:
           echo === Artefatos gerados ===
           dir "%TARGET%"
 
+      - name: Patch VersionHelpers for XP compatibility
+        shell: powershell
+        run: |
+          $file = "src\lib\inputleap\win32\AppUtilWindows.cpp"
+          $content = Get-Content $file -Raw
+
+          $content = $content -replace '#include <VersionHelpers.h>', @'
+// VersionHelpers.h not available on XP SDK - manual implementation
+#include <windows.h>
+static inline bool IsWindowsVistaOrGreater() {
+    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
+    GetVersionEx(&osvi);
+    return osvi.dwMajorVersion >= 6;
+}
+static inline bool IsWindowsXPOrGreater() {
+    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
+    GetVersionEx(&osvi);
+    return (osvi.dwMajorVersion > 5) ||
+           (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);
+}
+'@
+          Set-Content $file $content
+          Write-Host "Patch aplicado com sucesso em $file"
+
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
         with:
