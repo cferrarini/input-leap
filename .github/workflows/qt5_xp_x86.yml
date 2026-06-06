@@ -66,22 +66,8 @@ jobs:
         run: |
           $file = "src\lib\inputleap\win32\AppUtilWindows.cpp"
           $content = Get-Content $file -Raw
-
-          $content = $content -replace '#include <VersionHelpers.h>', @'
-// VersionHelpers.h not available on XP SDK - manual implementation
-#include <windows.h>
-static inline bool IsWindowsVistaOrGreater() {
-    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
-    GetVersionEx(&osvi);
-    return osvi.dwMajorVersion >= 6;
-}
-static inline bool IsWindowsXPOrGreater() {
-    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
-    GetVersionEx(&osvi);
-    return (osvi.dwMajorVersion > 5) ||
-           (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);
-}
-'@
+          $patch = "// VersionHelpers.h not available on XP SDK - manual implementation`n#include <windows.h>`nstatic inline bool IsWindowsVistaOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return osvi.dwMajorVersion >= 6;`n}`nstatic inline bool IsWindowsXPOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);`n}"
+          $content = $content -replace '#include <VersionHelpers\.h>', $patch
           Set-Content $file $content
           Write-Host "Patch aplicado com sucesso em $file"
 
