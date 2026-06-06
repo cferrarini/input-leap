@@ -61,15 +61,44 @@ jobs:
           echo === Artefatos gerados ===
           dir "%TARGET%"
 
-      - name: Patch VersionHelpers for XP compatibility
+      - name: Patch XP SDK compatibility headers
         shell: powershell
         run: |
-          $file = "src\lib\inputleap\win32\AppUtilWindows.cpp"
-          $content = Get-Content $file -Raw
-          $patch = "// VersionHelpers.h not available on XP SDK - manual implementation`n#include <windows.h>`nstatic inline bool IsWindowsVistaOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return osvi.dwMajorVersion >= 6;`n}`nstatic inline bool IsWindowsXPOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);`n}`nstatic inline bool IsWindowsXPSP3OrGreater() {`n    OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };`n    GetVersionEx((OSVERSIONINFO*)&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1 && osvi.wServicePackMajor >= 3);`n}"
-          $content = $content -replace '#include <VersionHelpers\.h>', $patch
-          Set-Content $file $content
-          Write-Host "Patch aplicado com sucesso em $file"
+          $xpInclude = "C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
+
+          $versionHelpers = @"
+#pragma once
+#include <windows.h>
+static inline bool IsWindowsXPOrGreater() {
+    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
+    GetVersionEx(&osvi);
+    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);
+}
+static inline bool IsWindowsXPSP3OrGreater() {
+    OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };
+    GetVersionEx((OSVERSIONINFO*)&osvi);
+    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1 && osvi.wServicePackMajor >= 3);
+}
+static inline bool IsWindowsVistaOrGreater() {
+    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
+    GetVersionEx(&osvi);
+    return osvi.dwMajorVersion >= 6;
+}
+static inline bool IsWindows7OrGreater() {
+    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };
+    GetVersionEx(&osvi);
+    return (osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion >= 1);
+}
+"@
+          Set-Content "$xpInclude\VersionHelpers.h" $versionHelpers
+
+          $stringApiSet = @"
+#pragma once
+#include <winnls.h>
+"@
+          Set-Content "$xpInclude\stringapiset.h" $stringApiSet
+
+          Write-Host "Stubs criados em $xpInclude"
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
