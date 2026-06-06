@@ -65,11 +65,22 @@ jobs:
         shell: powershell
         run: |
           $xpInclude = "C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include"
-          $versionHelpers = "#pragma once`n#include <windows.h>`nstatic inline bool IsWindowsXPOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);`n}`nstatic inline bool IsWindowsXPSP3OrGreater() {`n    OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };`n    GetVersionEx((OSVERSIONINFO*)&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1 && osvi.wServicePackMajor >= 3);`n}`nstatic inline bool IsWindowsVistaOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return osvi.dwMajorVersion >= 6;`n}`nstatic inline bool IsWindows7OrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion >= 1);`n}"
+
+          $versionHelpers = "#pragma once`n#include <windows.h>`nstatic inline bool IsWindowsXPOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1);`n}`nstatic inline bool IsWindowsXPSP3OrGreater() {`n    OSVERSIONINFOEX osvi = { sizeof(OSVERSIONINFOEX) };`n    GetVersionEx((OSVERSIONINFO*)&osvi);`n    return (osvi.dwMajorVersion > 5) || (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion >= 1 && osvi.wServicePackMajor >= 3);`n}`nstatic inline bool IsWindowsVistaOrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return osvi.dwMajorVersion >= 6;`n}`nstatic inline bool IsWindows7OrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion >= 1);`n}`nstatic inline bool IsWindows8OrGreater() {`n    OSVERSIONINFO osvi = { sizeof(OSVERSIONINFO) };`n    GetVersionEx(&osvi);`n    return (osvi.dwMajorVersion > 6) || (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion >= 2);`n}"
           Set-Content "$xpInclude\VersionHelpers.h" $versionHelpers
+
           $stringApiSet = "#pragma once`n#include <winnls.h>"
           Set-Content "$xpInclude\stringapiset.h" $stringApiSet
-          Write-Host "Stubs criados em $xpInclude"
+
+          # QS_TOUCH e QS_POINTER nao existem no XP SDK
+          $file = "src\lib\platform\MSWindowsEventQueueBuffer.cpp"
+          $content = Get-Content $file -Raw
+          $content = $content -replace 'IsWindows8OrGreater\(\)', 'false'
+          $content = $content -replace '\|\s*QS_TOUCH\s*\|\s*QS_POINTER', ''
+          $content = $content -replace 'QS_TOUCH\s*\|\s*QS_POINTER\s*\|?', ''
+          Set-Content $file $content
+
+          Write-Host "Stubs e patches aplicados com sucesso"
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -77,6 +88,15 @@ jobs:
           version: 5.15.2
           arch: win32_msvc2019
           cache: true
+
+      - name: Generate Qt translations
+        shell: powershell
+        run: |
+          $lrelease = "D:\a\input-leap\Qt\5.15.2\msvc2019\bin\lrelease.exe"
+          Get-ChildItem -Path "src\gui\res\lang" -Filter "*.ts" | ForEach-Object {
+            & $lrelease $_.FullName
+          }
+          Write-Host "Traducoes geradas com sucesso"
 
       - name: Configure build
         shell: powershell
