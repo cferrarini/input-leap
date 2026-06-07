@@ -61,15 +61,6 @@ jobs:
           echo === Artefatos gerados ===
           dir "%TARGET%"
 
-      - name: Show MSWindowsEventQueueBuffer lines 45-55
-        shell: powershell
-        run: |
-          $file = "src\lib\platform\MSWindowsEventQueueBuffer.cpp"
-          $lines = Get-Content $file
-          for ($i = 44; $i -le 54; $i++) {
-            Write-Host "$($i+1): $($lines[$i])"
-          }
-
       - name: Patch XP SDK compatibility headers
         shell: powershell
         run: |
@@ -83,9 +74,7 @@ jobs:
 
           $file = "src\lib\platform\MSWindowsEventQueueBuffer.cpp"
           $content = Get-Content $file -Raw
-          $content = $content -replace 'IsWindows8OrGreater\(\)', 'false'
-          $content = $content -replace '\s*\|\s*QS_TOUCH', ''
-          $content = $content -replace '\s*\|\s*QS_POINTER', ''
+          $content = $content -replace 'if \(!IsWindows8OrGreater\(\)\)\s*\{[^}]*\}', '// XP patch: QS_TOUCH and QS_POINTER not available on XP SDK'
           Set-Content $file $content
 
           Write-Host "Stubs e patches aplicados com sucesso"
