@@ -61,6 +61,15 @@ jobs:
           echo === Artefatos gerados ===
           dir "%TARGET%"
 
+      - name: Show MSWindowsEventQueueBuffer lines 45-55
+        shell: powershell
+        run: |
+          $file = "src\lib\platform\MSWindowsEventQueueBuffer.cpp"
+          $lines = Get-Content $file
+          for ($i = 44; $i -le 54; $i++) {
+            Write-Host "$($i+1): $($lines[$i])"
+          }
+
       - name: Patch XP SDK compatibility headers
         shell: powershell
         run: |
