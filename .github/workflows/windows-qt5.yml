@@ -81,10 +81,10 @@ jobs:
             }
           }
 
-          # 1) Renomeia a API legada (1.0.x) para a 1.1. Usa -creplace (case-sensitive):
-          #    com -replace, SSLeay_version casaria também com SSLEAY_VERSION.
+          # 1) Renomeia a API legada (1.0.x) para a 1.1. Usa -creplace (case-sensitive).
           $init_ssl = 'OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr)'
           $init_cry = 'OPENSSL_init_crypto(OPENSSL_INIT_ADD_ALL_CIPHERS | OPENSSL_INIT_ADD_ALL_DIGESTS, nullptr)'
+          $init_str = 'OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr)'
 
           Get-ChildItem $src -Recurse -Include *.cpp,*.h | ForEach-Object {
             Edit-File $_.FullName {
@@ -92,6 +92,10 @@ jobs:
               $t = $t -creplace '\bSSL_library_init\s*\(\s*\)',            $init_ssl
               $t = $t -creplace '\bSSL_load_error_strings\s*\(\s*\)',      $init_ssl
               $t = $t -creplace '\bOpenSSL_add_all_algorithms\s*\(\s*\)',  $init_cry
+              $t = $t -creplace '\bERR_load_crypto_strings\s*\(\s*\)',     $init_str
+              $t = $t -creplace '\bERR_free_strings\s*\(\s*\)',            '((void)0)'
+              $t = $t -creplace '\bEVP_cleanup\s*\(\s*\)',                 '((void)0)'
+              $t = $t -creplace '\bCRYPTO_cleanup_all_ex_data\s*\(\s*\)',  '((void)0)'
               $t = $t -creplace '\bX509_get_notBefore\b', 'X509_getm_notBefore'
               $t = $t -creplace '\bX509_get_notAfter\b',  'X509_getm_notAfter'
               $t = $t -creplace '\bSSLeay_version\b',     'OpenSSL_version'
@@ -106,8 +110,9 @@ jobs:
 
           # 2) Includes que antes vinham "de carona" pela API antiga.
           $inc = @{
-            "lib\net\SecureUtils.cpp"  = @('openssl/bn.h','openssl/rsa.h','openssl/x509.h','openssl/evp.h','openssl/crypto.h','openssl/ssl.h')
-            "lib\net\SecureSocket.cpp" = @('openssl/crypto.h','openssl/ssl.h','openssl/err.h','openssl/evp.h')
+            "lib\net\SecureUtils.cpp"    = @('openssl/bn.h','openssl/rsa.h','openssl/x509.h','openssl/evp.h','openssl/crypto.h','openssl/ssl.h')
+            "lib\net\SecureSocket.cpp"   = @('openssl/crypto.h','openssl/ssl.h','openssl/err.h','openssl/evp.h')
+            "gui\src\SslCertificate.cpp" = @('openssl/crypto.h','openssl/err.h')
           }
           foreach ($rel in $inc.Keys) {
             $file = Join-Path $src $rel
@@ -121,7 +126,7 @@ jobs:
 
           # 3) Verificação: símbolos legados que ainda sobraram
           $left = Get-ChildItem $src -Recurse -Include *.cpp,*.h |
-                  Select-String -CaseSensitive -Pattern '\bSSLeay_version\b|\bSSLEAY_\w+|\bSSL_library_init\b|\bX509_get_not(Before|After)\b'
+                  Select-String -CaseSensitive -Pattern '\bSSLeay_version\b|\bSSLEAY_\w+|\bSSL_library_init\b|\bX509_get_not(Before|After)\b|\bERR_load_crypto_strings\b'
           if ($left) { Write-Warning "Sobraram símbolos legados:"; $left | Select-Object -First 20 | ForEach-Object { $_.ToString() } }
 
       - name: Patch ServerProxy (m_fileTransferActive)
