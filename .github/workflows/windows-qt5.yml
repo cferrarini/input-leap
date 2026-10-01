@@ -81,26 +81,25 @@ jobs:
             }
           }
 
-          # 1) Renomeia a API legada (1.0.x) para a 1.1, em todo o código-fonte.
-          #    O zip foi compilado com --api=1.1.0 (OPENSSL_MIN_API), então os
-          #    nomes antigos nunca são declarados nos headers.
+          # 1) Renomeia a API legada (1.0.x) para a 1.1. Usa -creplace (case-sensitive):
+          #    com -replace, SSLeay_version casaria também com SSLEAY_VERSION.
           $init_ssl = 'OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr)'
           $init_cry = 'OPENSSL_init_crypto(OPENSSL_INIT_ADD_ALL_CIPHERS | OPENSSL_INIT_ADD_ALL_DIGESTS, nullptr)'
 
           Get-ChildItem $src -Recurse -Include *.cpp,*.h | ForEach-Object {
             Edit-File $_.FullName {
               param($t)
-              $t = $t -replace '\bSSL_library_init\s*\(\s*\)',            $init_ssl
-              $t = $t -replace '\bSSL_load_error_strings\s*\(\s*\)',      $init_ssl
-              $t = $t -replace '\bOpenSSL_add_all_algorithms\s*\(\s*\)',  $init_cry
-              $t = $t -replace '\bX509_get_notBefore\b', 'X509_getm_notBefore'
-              $t = $t -replace '\bX509_get_notAfter\b',  'X509_getm_notAfter'
-              $t = $t -replace '\bSSLeay_version\b',     'OpenSSL_version'
-              $t = $t -replace '\bSSLEAY_VERSION\b',     'OPENSSL_VERSION'
-              $t = $t -replace '\bSSLEAY_CFLAGS\b',      'OPENSSL_CFLAGS'
-              $t = $t -replace '\bSSLEAY_BUILT_ON\b',    'OPENSSL_BUILT_ON'
-              $t = $t -replace '\bSSLEAY_PLATFORM\b',    'OPENSSL_PLATFORM'
-              $t = $t -replace '\bSSLEAY_DIR\b',         'OPENSSL_DIR'
+              $t = $t -creplace '\bSSL_library_init\s*\(\s*\)',            $init_ssl
+              $t = $t -creplace '\bSSL_load_error_strings\s*\(\s*\)',      $init_ssl
+              $t = $t -creplace '\bOpenSSL_add_all_algorithms\s*\(\s*\)',  $init_cry
+              $t = $t -creplace '\bX509_get_notBefore\b', 'X509_getm_notBefore'
+              $t = $t -creplace '\bX509_get_notAfter\b',  'X509_getm_notAfter'
+              $t = $t -creplace '\bSSLeay_version\b',     'OpenSSL_version'
+              $t = $t -creplace '\bSSLEAY_VERSION\b',     'OPENSSL_VERSION'
+              $t = $t -creplace '\bSSLEAY_CFLAGS\b',      'OPENSSL_CFLAGS'
+              $t = $t -creplace '\bSSLEAY_BUILT_ON\b',    'OPENSSL_BUILT_ON'
+              $t = $t -creplace '\bSSLEAY_PLATFORM\b',    'OPENSSL_PLATFORM'
+              $t = $t -creplace '\bSSLEAY_DIR\b',         'OPENSSL_DIR'
               $t
             }
           }
@@ -122,24 +121,8 @@ jobs:
 
           # 3) Verificação: símbolos legados que ainda sobraram
           $left = Get-ChildItem $src -Recurse -Include *.cpp,*.h |
-                  Select-String -Pattern '\bSSLeay_version\b|\bSSLEAY_\w+|\bSSL_library_init\b|\bX509_get_not(Before|After)\b'
+                  Select-String -CaseSensitive -Pattern '\bSSLeay_version\b|\bSSLEAY_\w+|\bSSL_library_init\b|\bX509_get_not(Before|After)\b'
           if ($left) { Write-Warning "Sobraram símbolos legados:"; $left | Select-Object -First 20 | ForEach-Object { $_.ToString() } }
-
-      - name: Patch OPENSSL_DIR
-        shell: powershell
-        run: |
-          $f = Join-Path $env:GITHUB_WORKSPACE "input-leap\src\lib\net\SecureSocket.cpp"
-          Write-Host "--- linhas 836-846 antes ---"
-          Get-Content $f | Select-Object -Skip 835 -First 11
-          $t = [IO.File]::ReadAllText($f)
-          $n = $t -replace 'OpenSSL_version\(\s*(OPENSSL_DIR|SSLEAY_DIR)\s*\)', 'OpenSSL_version(4)'
-          if ($n -ne $t) {
-            [IO.File]::WriteAllText($f, $n, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Host "patched OPENSSL_DIR -> 4"
-          } else {
-            Write-Host "regex não casou; veja as linhas acima"
-          }
-
 
       - name: Patch ServerProxy (m_fileTransferActive)
         shell: powershell
