@@ -22,26 +22,53 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          New-Item -Force -ItemType Directory -Path .\deps
-          Invoke-WebRequest 'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' -OutFile 'deps\BonjourSDKLike.zip'
-          Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike
+
+          New-Item -Force -ItemType Directory -Path .\deps | Out-Null
+
+          Invoke-WebRequest `
+            'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' `
+            -OutFile 'deps\BonjourSDKLike.zip'
+
+          Expand-Archive `
+            .\deps\BonjourSDKLike.zip `
+            -DestinationPath .\deps\BonjourSDKLike `
+            -Force
+
           Remove-Item deps\BonjourSDKLike.zip
+
           "path=$env:GITHUB_WORKSPACE\deps\BonjourSDKLike" >> $env:GITHUB_OUTPUT
 
-      - name: Download OpenSSL 1.1.1 (Windows 7/8 Compatible)
+      - name: Extract OpenSSL 1.1.1
         id: openssl
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          New-Item -Force -ItemType Directory -Path .\deps
-          
-          # Download Win32OpenSSL-1_1_1w (latest 1.1.1 version)
-          # This version is compatible with Windows 7, 8, 10, 11
-          Invoke-WebRequest 'https://download.firedaemon.com/FireDaemon-OpenSSL/openssl-1.1.1w.zip' -OutFile 'deps\Win32OpenSSL.zip'
-          Expand-Archive .\deps\Win32OpenSSL.zip -DestinationPath .\deps\Win32OpenSSL
-          Remove-Item deps\Win32OpenSSL.zip
-          
-          "path=$env:GITHUB_WORKSPACE\deps\Win32OpenSSL" >> $env:GITHUB_OUTPUT
+
+          $zip = "$env:GITHUB_WORKSPACE\input-leap\deps\openssl.zip"
+          $deps = "$env:GITHUB_WORKSPACE\input-leap\deps"
+
+          if (-not (Test-Path $zip)) {
+            throw "OpenSSL ZIP not found: $zip"
+          }
+
+          Expand-Archive `
+            $zip `
+            -DestinationPath $deps `
+            -Force
+
+          $openssl_path = "$deps\openssl-1.1\x64"
+
+          if (-not (Test-Path "$openssl_path\lib\libssl.lib")) {
+            throw "OpenSSL x64 libraries not found in: $openssl_path"
+          }
+
+          if (-not (Test-Path "$openssl_path\bin\libssl-1_1-x64.dll")) {
+            throw "OpenSSL x64 DLLs not found in: $openssl_path"
+          }
+
+          Write-Host "OpenSSL path: $openssl_path"
+
+          "path=$openssl_path" >> $env:GITHUB_OUTPUT
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -54,7 +81,7 @@ jobs:
         run: |
           New-Item -Force -ItemType Directory -Path build | Out-Null
           cd build
-          
+
           cmake -S ..\input-leap `
             -G "Visual Studio 17 2022" `
             -A x64 `
@@ -79,16 +106,28 @@ jobs:
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
-          $openssl_path = "$env:GITHUB_WORKSPACE\deps\Win32OpenSSL"
-          Copy-Item "$openssl_path\bin\libssl-1_1.dll" -Destination "build\input-leap-install" -Force
-          Copy-Item "$openssl_path\bin\libcrypto-1_1.dll" -Destination "build\input-leap-install" -Force
+          $ErrorActionPreference = "Stop"
+
+          $openssl_path = "${{ steps.openssl.outputs.path }}"
+          $destination = "build\input-leap-install"
+
+          Copy-Item `
+            "$openssl_path\bin\libssl-1_1-x64.dll" `
+            -Destination $destination `
+            -Force
+
+          Copy-Item `
+            "$openssl_path\bin\libcrypto-1_1-x64.dll" `
+            -Destination $destination `
+            -Force
 
       - name: Create ZIP
         shell: powershell
         run: |
           Compress-Archive `
             -Path build\input-leap-install\* `
-            -DestinationPath input-leap-windows-qt5-openssl111-x64.zip
+            -DestinationPath input-leap-windows-qt5-openssl111-x64.zip `
+            -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
