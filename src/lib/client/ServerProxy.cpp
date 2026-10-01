@@ -51,7 +51,8 @@ ServerProxy::ServerProxy(Client* client, inputleap::IStream* stream, IEventQueue
     m_keepAliveAlarm(0.0),
     m_keepAliveAlarmTimer(nullptr),
     m_parser(&ServerProxy::parseHandshakeMessage),
-    m_events(events)
+    m_events(events),
+    m_fileTransferActive(false)
 {
     assert(m_client != nullptr);
     assert(m_stream != nullptr);
@@ -703,8 +704,11 @@ ServerProxy::mouseMove()
     // note if we should ignore the move
     ignore = m_ignoreMouse;
 
-    // compress mouse motion events if more input follows
-    if (!ignore && !m_compressMouse && m_stream->isReady()) {
+    // FIX: Don't compress mouse motion if a file transfer is active
+    // This keeps the mouse responsive even when the server is transferring
+    // files across the network, which would otherwise saturate the connection
+    // and cause m_stream->isReady() to return true constantly.
+    if (!ignore && !m_compressMouse && m_stream->isReady() && !m_fileTransferActive) {
         m_compressMouse = true;
     }
 
@@ -736,8 +740,8 @@ ServerProxy::mouseRelativeMove()
     // note if we should ignore the move
     ignore = m_ignoreMouse;
 
-    // compress mouse motion events if more input follows
-    if (!ignore && !m_compressMouseRelative && m_stream->isReady()) {
+    // FIX: Don't compress relative mouse motion if a file transfer is active
+    if (!ignore && !m_compressMouseRelative && m_stream->isReady() && !m_fileTransferActive) {
         m_compressMouseRelative = true;
     }
 
@@ -869,14 +873,22 @@ ServerProxy::fileChunkReceived()
                     m_client->getReceivedFileData(),
                     m_client->getExpectedFileSize());
 
-    if (result == kFinish) {
-        m_events->add_event(EventType::FILE_RECEIVE_COMPLETED, m_client);
-    }
-    else if (result == kStart) {
+    if (result == kStart) {
+        m_fileTransferActive = true;
+        LOG_DEBUG("file transfer started");
         if (m_client->getDragFileList().size() > 0) {
             std::string filename = m_client->getDragFileList().at(0).getFilename();
             LOG_DEBUG("start receiving %s", filename.c_str());
         }
+    }
+    else if (result == kFinish) {
+        m_fileTransferActive = false;
+        LOG_DEBUG("file transfer completed");
+        m_events->add_event(EventType::FILE_RECEIVE_COMPLETED, m_client);
+        
+        // FIX: Force immediate mouse flush and clipboard processing after file transfer
+        // This ensures clipboard stays synchronized even when large files are being transferred
+        flushCompressedMouse();
     }
 }
 
