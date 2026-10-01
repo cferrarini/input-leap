@@ -44,8 +44,8 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $zip = "$env:GITHUB_WORKSPACE\input-leap\deps\openssl.zip"
-          $deps = "$env:GITHUB_WORKSPACE\input-leap\deps"
+          $zip = "$env:GITHUB_WORKSPACE\deps\openssl.zip"
+          $deps = "$env:GITHUB_WORKSPACE\deps"
 
           if (-not (Test-Path $zip)) {
             throw "OpenSSL ZIP not found: $zip"
