@@ -16,6 +16,7 @@ jobs:
         with:
           path: input-leap
           submodules: recursive
+          lfs: true   # só importa se o zip estiver em Git LFS; inofensivo caso contrário
 
       - name: Download Bonjour SDK-like
         id: bonjour
@@ -44,30 +45,41 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $zip = "$env:GITHUB_WORKSPACE\deps\openssl-1.1.1w.zip"
-          $deps = "$env:GITHUB_WORKSPACE\deps"
+          # O zip está dentro do repositório (checkout com path: input-leap)
+          $zip = Join-Path $env:GITHUB_WORKSPACE "input-leap\deps\openssl-1.1.1w.zip"
+          $dest = Join-Path $env:GITHUB_WORKSPACE "deps\openssl-extracted"
 
           if (-not (Test-Path $zip)) {
+            Write-Host "Conteúdo de input-leap\deps:"
+            Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE "input-leap\deps") -ErrorAction SilentlyContinue
             throw "OpenSSL ZIP not found: $zip"
           }
 
-          Expand-Archive `
-            $zip `
-            -DestinationPath $deps `
-            -Force
+          Write-Host ("Tamanho do zip: {0} bytes" -f (Get-Item $zip).Length)
 
-          $openssl_path = "$deps\openssl-1.1\x64"
+          New-Item -Force -ItemType Directory -Path $dest | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
 
-          if (-not (Test-Path "$openssl_path\lib\libssl.lib")) {
-            throw "OpenSSL x64 libraries not found in: $openssl_path"
+          # Localiza o diretório x64 que contém lib\libssl.lib, onde quer que esteja
+          $x64 = Get-ChildItem -Path $dest -Recurse -Directory -Filter x64 |
+                 Where-Object { Test-Path (Join-Path $_.FullName "lib\libssl.lib") } |
+                 Select-Object -First 1
+
+          if (-not $x64) {
+            Get-ChildItem -Path $dest -Recurse | Select-Object -First 50 FullName
+            throw "OpenSSL x64 libraries not found under: $dest"
           }
 
+          $openssl_path = $x64.FullName
+
           if (-not (Test-Path "$openssl_path\bin\libssl-1_1-x64.dll")) {
-            throw "OpenSSL x64 DLLs not found in: $openssl_path"
+            throw "OpenSSL x64 DLLs not found in: $openssl_path\bin"
+          }
+          if (-not (Test-Path "$openssl_path\include\openssl\ssl.h")) {
+            throw "OpenSSL headers not found in: $openssl_path\include"
           }
 
           Write-Host "OpenSSL path: $openssl_path"
-
           "path=$openssl_path" >> $env:GITHUB_OUTPUT
 
       - name: Install Qt5
@@ -91,6 +103,7 @@ jobs:
             -D INPUTLEAP_BUILD_GULRAK_FILESYSTEM=1 `
             -D DNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\x64\dnssd.lib" `
             -D OPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR" `
+            -D OPENSSL_INCLUDE_DIR="$env:OPENSSL_ROOT_DIR\include" `
             -D OPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libcrypto.lib" `
             -D OPENSSL_SSL_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libssl.lib" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
@@ -111,15 +124,8 @@ jobs:
           $openssl_path = "${{ steps.openssl.outputs.path }}"
           $destination = "build\input-leap-install"
 
-          Copy-Item `
-            "$openssl_path\bin\libssl-1_1-x64.dll" `
-            -Destination $destination `
-            -Force
-
-          Copy-Item `
-            "$openssl_path\bin\libcrypto-1_1-x64.dll" `
-            -Destination $destination `
-            -Force
+          Copy-Item "$openssl_path\bin\libssl-1_1-x64.dll" -Destination $destination -Force
+          Copy-Item "$openssl_path\bin\libcrypto-1_1-x64.dll" -Destination $destination -Force
 
       - name: Create ZIP
         shell: powershell
