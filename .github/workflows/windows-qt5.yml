@@ -44,7 +44,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          $zip = "$env:GITHUB_WORKSPACE\deps\openssl.zip"
+          $zip = "$env:GITHUB_WORKSPACE\deps\openssl-1.1.1w.zip"
           $deps = "$env:GITHUB_WORKSPACE\deps"
 
           if (-not (Test-Path $zip)) {
