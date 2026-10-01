@@ -125,12 +125,7 @@ jobs:
                   Select-String -Pattern '\bSSLeay_version\b|\bSSLEAY_\w+|\bSSL_library_init\b|\bX509_get_not(Before|After)\b'
           if ($left) { Write-Warning "Sobraram símbolos legados:"; $left | Select-Object -First 20 | ForEach-Object { $_.ToString() } }
 
-      - name: Patch OpenSSL 1.1 API
-        shell: powershell
-        run: |
-          ... (o conteúdo que já existe, sem mexer)
-
-      - name: Patch OPENSSL_DIR          # <-- NOVO, cole aqui
+      - name: Patch OPENSSL_DIR
         shell: powershell
         run: |
           $f = Join-Path $env:GITHUB_WORKSPACE "input-leap\src\lib\net\SecureSocket.cpp"
@@ -144,7 +139,6 @@ jobs:
           } else {
             Write-Host "regex não casou; veja as linhas acima"
           }
-
 
 
       - name: Patch ServerProxy (m_fileTransferActive)
