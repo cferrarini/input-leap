@@ -16,25 +16,19 @@ jobs:
         with:
           path: input-leap
           submodules: recursive
-          lfs: true   # só importa se o zip estiver em Git LFS; inofensivo caso contrário
 
       - name: Download Bonjour SDK-like
         id: bonjour
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-
           New-Item -Force -ItemType Directory -Path .\deps | Out-Null
 
           Invoke-WebRequest `
             'https://github.com/nelsonjchen/mDNSResponder/releases/download/v2019.05.08.1/x64_RelWithDebInfo.zip' `
             -OutFile 'deps\BonjourSDKLike.zip'
 
-          Expand-Archive `
-            .\deps\BonjourSDKLike.zip `
-            -DestinationPath .\deps\BonjourSDKLike `
-            -Force
-
+          Expand-Archive .\deps\BonjourSDKLike.zip -DestinationPath .\deps\BonjourSDKLike -Force
           Remove-Item deps\BonjourSDKLike.zip
 
           "path=$env:GITHUB_WORKSPACE\deps\BonjourSDKLike" >> $env:GITHUB_OUTPUT
@@ -45,42 +39,115 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # O zip está dentro do repositório (checkout com path: input-leap)
-          $zip = Join-Path $env:GITHUB_WORKSPACE "input-leap\deps\openssl-1.1.1w.zip"
+          $zip  = Join-Path $env:GITHUB_WORKSPACE "input-leap\deps\openssl-1.1.1w.zip"
           $dest = Join-Path $env:GITHUB_WORKSPACE "deps\openssl-extracted"
 
           if (-not (Test-Path $zip)) {
-            Write-Host "Conteúdo de input-leap\deps:"
             Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE "input-leap\deps") -ErrorAction SilentlyContinue
             throw "OpenSSL ZIP not found: $zip"
           }
-
           Write-Host ("Tamanho do zip: {0} bytes" -f (Get-Item $zip).Length)
 
           New-Item -Force -ItemType Directory -Path $dest | Out-Null
           Expand-Archive -Path $zip -DestinationPath $dest -Force
 
-          # Localiza o diretório x64 que contém lib\libssl.lib, onde quer que esteja
           $x64 = Get-ChildItem -Path $dest -Recurse -Directory -Filter x64 |
                  Where-Object { Test-Path (Join-Path $_.FullName "lib\libssl.lib") } |
                  Select-Object -First 1
+          if (-not $x64) { throw "OpenSSL x64 libraries not found under: $dest" }
 
-          if (-not $x64) {
-            Get-ChildItem -Path $dest -Recurse | Select-Object -First 50 FullName
-            throw "OpenSSL x64 libraries not found under: $dest"
+          $p = $x64.FullName
+          foreach ($f in "bin\libssl-1_1-x64.dll","bin\libcrypto-1_1-x64.dll",
+                         "lib\libssl.lib","lib\libcrypto.lib","include\openssl\ssl.h") {
+            if (-not (Test-Path (Join-Path $p $f))) { throw "Faltando em ${p}: $f" }
           }
 
-          $openssl_path = $x64.FullName
+          Write-Host "OpenSSL path: $p"
+          "path=$p" >> $env:GITHUB_OUTPUT
 
-          if (-not (Test-Path "$openssl_path\bin\libssl-1_1-x64.dll")) {
-            throw "OpenSSL x64 DLLs not found in: $openssl_path\bin"
-          }
-          if (-not (Test-Path "$openssl_path\include\openssl\ssl.h")) {
-            throw "OpenSSL headers not found in: $openssl_path\include"
+      - name: Patch OpenSSL 1.1 API
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $src  = Join-Path $env:GITHUB_WORKSPACE "input-leap\src"
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+
+          function Edit-File($path, [scriptblock]$fn) {
+            $old = [IO.File]::ReadAllText($path)
+            $new = & $fn $old
+            if ($new -ne $old) {
+              [IO.File]::WriteAllText($path, $new, $utf8)
+              Write-Host "patched: $path"
+            }
           }
 
-          Write-Host "OpenSSL path: $openssl_path"
-          "path=$openssl_path" >> $env:GITHUB_OUTPUT
+          # 1) Renomeia a API legada (1.0.x) para a 1.1, em todo o código-fonte.
+          #    O zip foi compilado com --api=1.1.0 (OPENSSL_MIN_API), então os
+          #    nomes antigos nunca são declarados nos headers.
+          $init_ssl = 'OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr)'
+          $init_cry = 'OPENSSL_init_crypto(OPENSSL_INIT_ADD_ALL_CIPHERS | OPENSSL_INIT_ADD_ALL_DIGESTS, nullptr)'
+
+          Get-ChildItem $src -Recurse -Include *.cpp,*.h | ForEach-Object {
+            Edit-File $_.FullName {
+              param($t)
+              $t = $t -replace '\bSSL_library_init\s*\(\s*\)',            $init_ssl
+              $t = $t -replace '\bSSL_load_error_strings\s*\(\s*\)',      $init_ssl
+              $t = $t -replace '\bOpenSSL_add_all_algorithms\s*\(\s*\)',  $init_cry
+              $t = $t -replace '\bX509_get_notBefore\b', 'X509_getm_notBefore'
+              $t = $t -replace '\bX509_get_notAfter\b',  'X509_getm_notAfter'
+              $t = $t -replace '\bSSLeay_version\b',     'OpenSSL_version'
+              $t = $t -replace '\bSSLEAY_VERSION\b',     'OPENSSL_VERSION'
+              $t = $t -replace '\bSSLEAY_CFLAGS\b',      'OPENSSL_CFLAGS'
+              $t = $t -replace '\bSSLEAY_BUILT_ON\b',    'OPENSSL_BUILT_ON'
+              $t = $t -replace '\bSSLEAY_PLATFORM\b',    'OPENSSL_PLATFORM'
+              $t = $t -replace '\bSSLEAY_DIR\b',         'OPENSSL_DIR'
+              $t
+            }
+          }
+
+          # 2) Includes que antes vinham "de carona" pela API antiga.
+          $inc = @{
+            "lib\net\SecureUtils.cpp"  = @('openssl/bn.h','openssl/rsa.h','openssl/x509.h','openssl/evp.h','openssl/crypto.h','openssl/ssl.h')
+            "lib\net\SecureSocket.cpp" = @('openssl/crypto.h','openssl/ssl.h','openssl/err.h','openssl/evp.h')
+          }
+          foreach ($rel in $inc.Keys) {
+            $file = Join-Path $src $rel
+            if (-not (Test-Path $file)) { Write-Warning "não encontrado: $file"; continue }
+            Edit-File $file {
+              param($t)
+              $add = ($inc[$rel] | ForEach-Object { "#include <$_>" }) -join "`r`n"
+              "$add`r`n$t"
+            }
+          }
+
+          # 3) Verificação: símbolos legados que ainda sobraram
+          $left = Get-ChildItem $src -Recurse -Include *.cpp,*.h |
+                  Select-String -Pattern '\bSSLeay_version\b|\bSSLEAY_\w+|\bSSL_library_init\b|\bX509_get_not(Before|After)\b'
+          if ($left) { Write-Warning "Sobraram símbolos legados:"; $left | Select-Object -First 20 | ForEach-Object { $_.ToString() } }
+
+      - name: Patch ServerProxy (m_fileTransferActive)
+        shell: powershell
+        run: |
+          # PALIATIVO: o .cpp usa o membro e o .h não o declara. Corrija no repositório
+          # e remova este passo. Aqui só declara o membro se estiver faltando.
+          $ErrorActionPreference = "Stop"
+          $dir = Join-Path $env:GITHUB_WORKSPACE "input-leap\src\lib\client"
+          $h   = Join-Path $dir "ServerProxy.h"
+          $cpp = Join-Path $dir "ServerProxy.cpp"
+
+          $inCpp = Select-String -Path $cpp -Pattern 'm_fileTransferActive' -Quiet
+          $inH   = Select-String -Path $h   -Pattern 'm_fileTransferActive' -Quiet
+          if ($inCpp -and -not $inH) {
+            Select-String -Path $cpp -Pattern 'm_fileTransferActive' | Select-Object -First 6 | ForEach-Object { $_.ToString() }
+            $t = [IO.File]::ReadAllText($h)
+            $m = [regex]::Match($t, '(?m)^[ \t]*private:[ \t]*\r?\n')
+            if (-not $m.Success) { throw "Sem seção 'private:' em ServerProxy.h; declare o membro à mão." }
+            $t = $t.Insert($m.Index + $m.Length, "`tbool m_fileTransferActive = false;`r`n")
+            [IO.File]::WriteAllText($h, $t, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "Declarado m_fileTransferActive em ServerProxy.h"
+          } else {
+            Write-Host "Nada a fazer (cpp usa: $inCpp, h declara: $inH)"
+          }
 
       - name: Install Qt5
         uses: jurplel/install-qt-action@v4
@@ -107,6 +174,7 @@ jobs:
             -D OPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libcrypto.lib" `
             -D OPENSSL_SSL_LIBRARY="$env:OPENSSL_ROOT_DIR\lib\libssl.lib" `
             -D CMAKE_INSTALL_PREFIX=input-leap-install
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         env:
           BONJOUR_SDK_HOME: ${{ steps.bonjour.outputs.path }}
           OPENSSL_ROOT_DIR: ${{ steps.openssl.outputs.path }}
@@ -114,26 +182,30 @@ jobs:
       - name: Build
         shell: powershell
         run: |
-          cmake --build build --config Release --target install
+          cmake --build build --config Release --target install -- /m /nologo /v:minimal 2>&1 |
+            Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "=============== ERROS ==============="
+            Select-String -Path build.log -Pattern ' error |fatal error|LNK\d+' |
+              ForEach-Object { $_.Line.Trim() } | Select-Object -Unique -First 40
+            exit $code
+          }
 
       - name: Copy OpenSSL DLLs
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-
-          $openssl_path = "${{ steps.openssl.outputs.path }}"
-          $destination = "build\input-leap-install"
-
-          Copy-Item "$openssl_path\bin\libssl-1_1-x64.dll" -Destination $destination -Force
-          Copy-Item "$openssl_path\bin\libcrypto-1_1-x64.dll" -Destination $destination -Force
+          $p = "${{ steps.openssl.outputs.path }}"
+          $d = "build\input-leap-install"
+          Copy-Item "$p\bin\libssl-1_1-x64.dll"    -Destination $d -Force
+          Copy-Item "$p\bin\libcrypto-1_1-x64.dll" -Destination $d -Force
 
       - name: Create ZIP
         shell: powershell
         run: |
-          Compress-Archive `
-            -Path build\input-leap-install\* `
-            -DestinationPath input-leap-windows-qt5-openssl111-x64.zip `
-            -Force
+          Compress-Archive -Path build\input-leap-install\* `
+            -DestinationPath input-leap-windows-qt5-openssl111-x64.zip -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
